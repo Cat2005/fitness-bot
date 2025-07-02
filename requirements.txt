@@ -1,0 +1,38 @@
+# Telegram Bot Framework
+python-telegram-bot==20.7
+
+# Task Scheduling
+APScheduler==3.10.4
+
+# Claude API Integration
+anthropic==0.34.2
+
+# Google APIs
+google-api-python-client==2.147.0
+google-auth-oauthlib==1.2.1
+google-auth==2.35.0
+
+# Timezone Handling
+pytz==2024.2
+
+# HTTP Requests (for Google API dependencies)
+requests==2.32.3
+urllib3==2.2.3
+
+# JSON and Data Handling (built-in, but listed for clarity)
+# json - built-in
+# datetime - built-in
+# os - built-in
+
+# Type Checking and Development
+mypy==1.5.1
+types-pytz==2023.3.1.1
+types-requests==2.31.0.6
+
+# Testing
+pytest==7.4.2
+pytest-asyncio==0.21.1
+pytest-mock==3.11.1
+
+# Optional: For better async handling
+asyncio-mqtt==0.16.1 
