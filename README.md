@@ -1,6 +1,6 @@
 # Fitness Coach Bot 🏋️‍♂️
 
-Telegram accountability bot that helps you track your fitness journey with daily check-ins and weekly recaps. Uses Claude for summary generation and stores all data in Google Docs for easy access and review.
+Telegram accountability bot that helps you track fitness and health goals with daily check-ins and weekly recaps. Uses Claude for summary generation and stores all data in Google Docs.
 
 ## Features
 
