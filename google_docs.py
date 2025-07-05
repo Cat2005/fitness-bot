@@ -419,4 +419,137 @@ def get_daily_summaries_from_doc(doc_id: str, days: int = 7) -> list[dict[str, A
         
     except Exception as e:
         logger.error(f"Failed to get daily summaries from doc: {e}")
-        return [] 
+        return []
+
+
+def get_stretch_entry(doc_id: str, date: str) -> dict[str, Any] | None:
+    """
+    Get stretch entry for a specific date.
+    
+    Args:
+        doc_id: Google Doc ID for stretch tracking
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        dict with stretch data or None if not found
+    """
+    try:
+        doc = get_document_content(doc_id)
+        content = doc.get('body', {}).get('content', [])
+        
+        # Extract all text content
+        full_text = ""
+        for element in content:
+            if 'paragraph' in element and 'elements' in element['paragraph']:
+                for elem in element['paragraph']['elements']:
+                    if 'textRun' in elem and 'content' in elem['textRun']:
+                        full_text += elem['textRun']['content']
+        
+        # Look for stretch entry for the specific date
+        lines = full_text.split('\n')
+        for i, line in enumerate(lines):
+            if line.strip().startswith('Stretch Check:') and date in line:
+                # Found the entry, now extract the response
+                j = i + 1
+                while j < len(lines) and not lines[j].strip().startswith('---'):
+                    line_content = lines[j].strip().lower()
+                    if 'yes' in line_content or 'no' in line_content:
+                        stretched = 'yes' in line_content
+                        return {
+                            'date': date,
+                            'stretched': stretched,
+                            'response': lines[j].strip()
+                        }
+                    j += 1
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to get stretch entry for {date}: {e}")
+        return None
+
+
+def save_stretch_entry(doc_id: str, date: str, response: str, stretched: bool) -> None:
+    """
+    Save a stretch entry to the Google Doc.
+    
+    Args:
+        doc_id: Google Doc ID for stretch tracking
+        date: Date in YYYY-MM-DD format
+        response: User's response text
+        stretched: Whether the user stretched (True/False)
+    """
+    try:
+        content = f"""
+Stretch Check: {date}
+
+Response: {response}
+Stretched: {'Yes' if stretched else 'No'}
+
+---
+        """
+        
+        append_to_doc(doc_id, f"Stretch Check: {date}", content)
+        logger.info(f"Saved stretch entry for {date}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save stretch entry for {date}: {e}")
+        raise
+
+
+def create_stretch_log_doc(title: str = "Stretch Tracker Log") -> str:
+    """
+    Create a new Google Doc for stretch tracking.
+    
+    Args:
+        title: Title for the new document
+        
+    Returns:
+        str: Document ID of the created document
+    """
+    def _make_request() -> str:
+        service = _get_docs_service()
+        
+        # Create the document
+        doc = service.documents().create(
+            body={'title': title}
+        ).execute()
+        
+        doc_id = doc.get('documentId')
+        
+        # Add initial content
+        initial_content = f"""
+Welcome to your Stretch Tracker Log! 🧘‍♂️
+
+This document will automatically track your daily stretch check-ins.
+The newest entries will appear at the top.
+
+Created: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+        """
+        
+        requests = [
+            {
+                'insertText': {
+                    'location': {'index': 1},
+                    'text': initial_content
+                }
+            }
+        ]
+        
+        service.documents().batchUpdate(
+            documentId=doc_id,
+            body={'requests': requests}
+        ).execute()
+        
+        return doc_id
+    
+    try:
+        result = _retry_with_backoff(_make_request)
+        logger.info(f"Successfully created stretch log document: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to create stretch log document: {e}")
+        raise 

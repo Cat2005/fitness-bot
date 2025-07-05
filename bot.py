@@ -17,8 +17,8 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from claude_api import get_daily_summary, get_weekly_recap
-from config import CLAUDE_API_KEY, DOC_ID, TELEGRAM_TOKEN, TZ, USER_CHAT_ID
-from google_docs import append_to_doc, get_daily_summaries_from_doc
+from config import CLAUDE_API_KEY, DOC_ID, STRETCH_DOC_ID, TELEGRAM_TOKEN, TZ, USER_CHAT_ID
+from google_docs import append_to_doc, get_daily_summaries_from_doc, get_stretch_entry, save_stretch_entry
 from scheduler import start_scheduler
 
 # Configure logging
@@ -38,8 +38,10 @@ class FitnessCoachBot:
         self.tz = pytz.timezone(TZ)
         self.awaiting_daily_response = False
         self.awaiting_weekly_response = False
+        self.awaiting_stretch_response = False
         self.pending_daily_data: dict[str, Any] = {}
         self.pending_weekly_data: dict[str, Any] = {}
+        self.pending_stretch_data: dict[str, Any] = {}
         
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle the /start command."""
@@ -65,11 +67,13 @@ Available commands:
 /help - Show this help message
 /daily - Trigger daily check-in manually
 /weekly - Trigger weekly recap manually
+/stretch - Trigger stretch check manually
 /status - Show current bot status
 
 The bot will automatically:
 - Send daily prompts at 20:30 Europe/London
 - Send weekly recaps on Sundays at 20:00 Europe/London
+- Send stretch reminders at 19:00 Europe/London (if needed)
 - Store all data in Google Docs
         """
         await update.message.reply_text(help_text)
@@ -88,6 +92,13 @@ The bot will automatically:
             
         await self.send_weekly_recap(context)
         
+    async def stretch_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Manually trigger stretch check."""
+        if update.effective_chat and update.effective_chat.id != USER_CHAT_ID:
+            return
+            
+        await self.send_stretch_check(context)
+        
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Show current bot status."""
         if update.effective_chat and update.effective_chat.id != USER_CHAT_ID:
@@ -99,8 +110,10 @@ Current Status:
 - Time: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}
 - Awaiting daily response: {self.awaiting_daily_response}
 - Awaiting weekly response: {self.awaiting_weekly_response}
+- Awaiting stretch response: {self.awaiting_stretch_response}
 - Next daily prompt: Today at 20:30 Europe/London
 - Next weekly recap: Sunday at 20:00 Europe/London
+- Next stretch check: Today at 19:00 Europe/London (if needed)
         """
         await update.message.reply_text(status_text)
         
@@ -118,10 +131,12 @@ Current Status:
             await self.process_daily_response(user_text, context)
         elif self.awaiting_weekly_response:
             await self.process_weekly_response(user_text, context)
+        elif self.awaiting_stretch_response:
+            await self.process_stretch_response(user_text, context)
         else:
             await update.message.reply_text(
-                "I'm not currently expecting a response. Use /daily to start a daily check-in "
-                "or /weekly for a weekly recap."
+                "I'm not currently expecting a response. Use /daily to start a daily check-in, "
+                "/weekly for a weekly recap, or /stretch for a stretch check."
             )
             
     async def send_daily_prompt(self, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -163,6 +178,52 @@ Current Status:
             
         except Exception as e:
             logger.error(f"Error sending daily prompt: {e}")
+            
+    async def send_stretch_check(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Send stretch check if user didn't stretch yesterday or has no entry."""
+        try:
+            # Get yesterday's date
+            yesterday = (datetime.now(self.tz) - timedelta(days=1)).date()
+            yesterday_str = yesterday.isoformat()
+            
+            # Check if user stretched yesterday
+            yesterday_entry = get_stretch_entry(STRETCH_DOC_ID, yesterday_str)
+            
+            # If they stretched yesterday, don't send reminder
+            if yesterday_entry and yesterday_entry.get('stretched', False):
+                logger.info(f"User stretched yesterday ({yesterday_str}), no reminder needed")
+                return
+                
+            # Send stretch reminder
+            today = datetime.now(self.tz).date()
+            today_str = today.isoformat()
+            
+            # Check if we already have an entry for today
+            today_entry = get_stretch_entry(STRETCH_DOC_ID, today_str)
+            if today_entry:
+                logger.info(f"Already have stretch entry for today ({today_str}), no reminder needed")
+                return
+            
+            prompt = "🧘‍♂️ Stretch Reminder!\n\n"
+            
+            if yesterday_entry:
+                prompt += "I noticed you didn't stretch yesterday. "
+            else:
+                prompt += "I don't have a record of you stretching yesterday. "
+            
+            prompt += (
+                "Have you stretched today? Even 5-10 minutes can make a big difference!\n\n"
+                "Please reply with 'yes' or 'no' and let me know about your stretching today."
+            )
+            
+            await context.bot.send_message(chat_id=USER_CHAT_ID, text=prompt)
+            self.awaiting_stretch_response = True
+            self.pending_stretch_data = {'date': today_str}
+            
+            logger.info("Stretch check sent successfully")
+            
+        except Exception as e:
+            logger.error(f"Error sending stretch check: {e}")
             
     async def process_daily_response(self, user_text: str, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Process the user's daily response with Claude and save to Google Docs."""
@@ -306,6 +367,48 @@ User Rating & Goals:
                 text="Sorry, there was an error saving your weekly response. Please try again later."
             )
             
+    async def process_stretch_response(self, user_text: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Process the user's stretch response and save to Google Docs."""
+        try:
+            self.awaiting_stretch_response = False
+            
+            # Determine if user stretched based on response
+            user_text_lower = user_text.lower()
+            stretched = 'yes' in user_text_lower or 'yeah' in user_text_lower or 'yep' in user_text_lower
+            
+            # Get today's date
+            today = self.pending_stretch_data.get('date', datetime.now(self.tz).date().isoformat())
+            
+            # Save to Google Docs
+            save_stretch_entry(STRETCH_DOC_ID, today, user_text, stretched)
+            
+            # Send confirmation to user
+            if stretched:
+                response_text = (
+                    "Great job! 🎉 I've recorded that you stretched today. "
+                    "Keep up the excellent work with your flexibility routine! 💪"
+                )
+            else:
+                response_text = (
+                    "Thanks for the update! 📝 I've recorded your response. "
+                    "Remember, even a few minutes of stretching can help prevent stiffness "
+                    "and improve your mobility. Consider adding it to your routine tomorrow! 🧘‍♂️"
+                )
+            
+            await context.bot.send_message(chat_id=USER_CHAT_ID, text=response_text)
+            
+            # Clear pending data
+            self.pending_stretch_data = {}
+            
+            logger.info("Stretch response processed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error processing stretch response: {e}")
+            await context.bot.send_message(
+                chat_id=USER_CHAT_ID, 
+                text="Sorry, there was an error saving your stretch response. Please try again later."
+            )
+            
     def _get_recent_history(self, days: int) -> str:
         """Get recent history for context from Google Docs."""
         try:
@@ -349,6 +452,7 @@ User Rating & Goals:
         self.application.add_handler(CommandHandler("help", self.help_command))
         self.application.add_handler(CommandHandler("daily", self.daily_command))
         self.application.add_handler(CommandHandler("weekly", self.weekly_command))
+        self.application.add_handler(CommandHandler("stretch", self.stretch_command))
         self.application.add_handler(CommandHandler("status", self.status_command))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         

@@ -67,6 +67,24 @@ class FitnessScheduler:
         
         logger.info("Weekly recap job scheduled for Sundays at 20:00 Europe/London")
         
+    def setup_stretch_check(self) -> None:
+        """Set up stretch check job at 19:00 Europe/London daily."""
+        trigger = CronTrigger(
+            hour=19,
+            minute=0,
+            timezone=pytz.timezone(TZ)
+        )
+        
+        self.scheduler.add_job(
+            func=self._send_stretch_check_job,
+            trigger=trigger,
+            id='stretch_check',
+            name='Daily Stretch Check',
+            replace_existing=True
+        )
+        
+        logger.info("Stretch check job scheduled for 19:00 Europe/London")
+        
     def start(self) -> None:
         """Start the scheduler."""
         try:
@@ -124,6 +142,26 @@ class FitnessScheduler:
         except Exception as e:
             logger.error(f"Error in weekly recap job: {e}")
             
+    def _send_stretch_check_job(self) -> None:
+        """Job function to send stretch check."""
+        try:
+            import asyncio
+            
+            # Create a new event loop for the job
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Create a context object for the bot
+            context = self._create_context()
+            
+            # Send the stretch check
+            loop.run_until_complete(self.bot.send_stretch_check(context))
+            
+            loop.close()
+            
+        except Exception as e:
+            logger.error(f"Error in stretch check job: {e}")
+            
     def _create_context(self) -> object:
         """Create a minimal context object for scheduled jobs."""
         # This is a simplified context object for scheduled jobs
@@ -156,6 +194,7 @@ def start_scheduler(bot: FitnessCoachBot) -> FitnessScheduler:
     # Set up jobs
     scheduler.setup_daily_prompt()
     scheduler.setup_weekly_recap()
+    scheduler.setup_stretch_check()
     
     # Start the scheduler
     scheduler.start()

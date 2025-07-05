@@ -20,6 +20,7 @@ CLAUDE_MODEL: Final[str] = os.getenv("CLAUDE_MODEL", "claude-3-7-sonnet-20250219
 
 # Google Docs Configuration
 DOC_ID: Final[str] = os.getenv("GOOGLE_DOC_ID", "")
+STRETCH_DOC_ID: Final[str] = os.getenv("STRETCH_DOC_ID", "")
 GOOGLE_CREDENTIALS_PATH: Final[str] = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 
 # Timezone Configuration
@@ -46,6 +47,7 @@ def validate_config() -> None:
         "USER_CHAT_ID": USER_CHAT_ID,
         "CLAUDE_API_KEY": CLAUDE_API_KEY,
         "GOOGLE_DOC_ID": DOC_ID,
+        "STRETCH_DOC_ID": STRETCH_DOC_ID,
     }
     
     missing_configs = [
@@ -73,6 +75,7 @@ def get_config_summary() -> dict[str, str]:
         "claude_api_key_set": bool(CLAUDE_API_KEY),
         "claude_model": CLAUDE_MODEL,
         "google_doc_id_set": bool(DOC_ID),
+        "stretch_doc_id_set": bool(STRETCH_DOC_ID),
         "timezone": TZ,
         "max_retries": str(MAX_RETRIES),
         "retry_delay": str(RETRY_DELAY),
